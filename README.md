@@ -73,8 +73,8 @@ flowchart LR
 ### 2. 클론 + 의존성 설치
 
 ```bash
-git clone https://github.com/<your-username>/coolvibeply.git
-cd coolvibeply
+git clone https://github.com/ezleeji38-lgtm/youtubeshorts.git
+cd youtubeshorts
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
@@ -138,7 +138,7 @@ curl http://localhost:8000/api/shorts/<id>
 ## 폴더 구조
 
 ```
-coolvibeply/
+youtubeshorts/
 ├── backend/
 │   ├── main.py              FastAPI 진입점
 │   ├── config.py            .env 로드
