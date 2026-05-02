@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import shorts
+from .api import playlists, shorts, songs
 from .config import settings
 from .db import init_db
 
@@ -20,6 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(playlists.router, prefix="/api/playlists", tags=["playlists"])
+app.include_router(songs.router, prefix="/api/songs", tags=["songs"])
 app.include_router(shorts.router, prefix="/api/shorts", tags=["shorts"])
 
 
