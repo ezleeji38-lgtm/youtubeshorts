@@ -1,11 +1,12 @@
-"""쇼츠 파이프라인의 개별 스텝 함수들. 각 함수는 사용자 키를 받아 외부 API 호출."""
+"""쇼츠 파이프라인의 개별 스텝 함수들 (다운로드/STT/번역).
+
+렌더링은 pipeline/render.py에서 ffmpeg로 직접 처리한다.
+"""
 
 import re
 import subprocess
-import time
 from pathlib import Path
 
-import requests
 import yt_dlp
 
 
@@ -24,7 +25,7 @@ def download_audio_segment(
         "no_warnings": True,
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(source_url, download=True)
+        ydl.extract_info(source_url, download=True)
     downloaded = list(out_dir.glob(f"{short_id}_full.*"))
     if not downloaded:
         raise RuntimeError("yt-dlp 다운로드 실패")
@@ -71,7 +72,7 @@ def download_thumbnail(source_url: str, out_dir: Path, short_id: str) -> Path:
 
 
 def extract_frame(source_url: str, frame_seconds: float, out_dir: Path, short_id: str) -> Path:
-    """롱폼 영상의 특정 시점 프레임을 JPG로 추출 (다운로드 없이 스트림 캡처)."""
+    """롱폼 영상의 특정 시점 프레임을 JPG로 추출."""
     out_path = out_dir / f"{short_id}_frame.jpg"
     opts = {
         "format": "best[ext=mp4]/best",
@@ -141,86 +142,3 @@ def translate_to_korean(segments: list[dict], gemini_key: str) -> list[dict]:
             translated[int(m.group(1))] = m.group(2).strip()
 
     return [{**s, "text_ko": translated.get(i, s["text"])} for i, s in enumerate(segments)]
-
-
-# ── 4. Creatomate 렌더 ────────────────────────────────────
-SUBTITLE_STYLE_EN = {
-    "font_family": "Inter",
-    "font_weight": "500",
-    "font_size": "3.5 vh",
-    "fill_color": "rgba(255,255,255,0.85)",
-    "x_alignment": "50%",
-    "y_alignment": "70%",
-    "width": "85%",
-    "shadow_color": "rgba(0,0,0,0.6)",
-    "shadow_blur": "1 vmin",
-}
-
-SUBTITLE_STYLE_KO = {
-    "font_family": "Noto Sans KR",
-    "font_weight": "800",
-    "font_size": "5.5 vh",
-    "fill_color": "#FFFFFF",
-    "stroke_color": "#000000",
-    "stroke_width": "0.4 vmin",
-    "x_alignment": "50%",
-    "y_alignment": "82%",
-    "width": "90%",
-    "line_height": "115%",
-}
-
-
-def build_creatomate_source(
-    image_url: str, audio_url: str, segments: list[dict], duration: float, base_offset: float
-) -> dict:
-    """이미지 + 음악 + 영/한 자막 = 9:16 쇼츠 source JSON."""
-    elements: list[dict] = [
-        {"type": "image", "source": image_url, "duration": duration, "fit": "cover", "blur": "8 vmin"},
-        {"type": "image", "source": image_url, "duration": duration, "fit": "contain", "y_alignment": "40%", "height": "55%"},
-        {"type": "audio", "source": audio_url, "duration": duration},
-    ]
-    for seg in segments:
-        seg_start = max(0.0, seg["start"] - base_offset)
-        seg_dur = max(0.3, seg["end"] - seg["start"])
-        if seg_start >= duration:
-            continue
-        elements.append({"type": "text", "track": 2, "time": seg_start, "duration": seg_dur, "text": seg["text"], **SUBTITLE_STYLE_EN})
-        elements.append({"type": "text", "track": 3, "time": seg_start, "duration": seg_dur, "text": seg.get("text_ko", ""), **SUBTITLE_STYLE_KO})
-
-    return {"output_format": "mp4", "width": 1080, "height": 1920, "duration": duration, "elements": elements}
-
-
-def render_with_creatomate(source: dict, creatomate_key: str) -> str:
-    headers = {"Authorization": f"Bearer {creatomate_key}", "Content-Type": "application/json"}
-    resp = requests.post(
-        "https://api.creatomate.com/v1/renders",
-        json={"source": source}, headers=headers, timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    render = data[0] if isinstance(data, list) else data
-    render_id = render["id"]
-
-    for _ in range(120):
-        time.sleep(5)
-        poll = requests.get(
-            f"https://api.creatomate.com/v1/renders/{render_id}",
-            headers=headers, timeout=30,
-        )
-        poll.raise_for_status()
-        status = poll.json()
-        state = status.get("status")
-        if state == "succeeded":
-            return status["url"]
-        if state in ("failed", "cancelled"):
-            raise RuntimeError(f"Creatomate 렌더 실패: {status}")
-    raise TimeoutError("Creatomate 렌더 10분 초과")
-
-
-def download_to_local(url: str, dest: Path) -> Path:
-    resp = requests.get(url, stream=True, timeout=180)
-    resp.raise_for_status()
-    with open(dest, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            f.write(chunk)
-    return dest

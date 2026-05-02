@@ -4,13 +4,11 @@ from datetime import datetime
 
 from ..config import settings
 from ..db import Short, session_scope
+from .render import render_local
 from .steps import (
-    build_creatomate_source,
     download_audio_segment,
     download_thumbnail,
-    download_to_local,
     extract_frame,
-    render_with_creatomate,
     transcribe,
     translate_to_korean,
 )
@@ -37,7 +35,6 @@ def run_pipeline(short_id: str) -> None:
         k for k, v in (
             ("OPENAI_API_KEY", settings.openai_api_key),
             ("GEMINI_API_KEY", settings.gemini_api_key),
-            ("CREATOMATE_API_KEY", settings.creatomate_api_key),
         ) if not v
     ]
     if missing:
@@ -75,7 +72,7 @@ def run_pipeline(short_id: str) -> None:
         _update(short_id, status="translating", progress_percent=55)
         translated = translate_to_korean(transcript["segments"], settings.gemini_api_key)
 
-        # 4. 렌더
+        # 4. 렌더 (로컬 FFmpeg)
         _update(
             short_id,
             status="rendering",
@@ -83,25 +80,19 @@ def run_pipeline(short_id: str) -> None:
             english_lyrics={"segments": transcript["segments"]},
             korean_lyrics={"segments": translated},
         )
-        # V0.2 예정: Creatomate가 외부 URL을 요구하므로 현재는 placeholder.
-        # 로컬 FFmpeg 합성으로 대체 또는 Cloudflare R2 업로드 후 public URL 획득.
-        public_image_url = f"file://{image_path}"
-        public_audio_url = f"file://{audio_path}"
-
         duration = params["end_seconds"] - params["start_seconds"]
-        source = build_creatomate_source(
-            public_image_url,
-            public_audio_url,
-            translated,
-            duration,
-            base_offset=0.0,
-        )
-        render_url = render_with_creatomate(source, settings.creatomate_api_key)
-
-        # 5. 결과물 저장
         output_path = work_dir / f"{short_id}.mp4"
-        download_to_local(render_url, output_path)
+        render_local(
+            image_path=image_path,
+            audio_path=audio_path,
+            segments=translated,
+            duration=duration,
+            output_path=output_path,
+            font_en=settings.font_en,
+            font_ko=settings.font_ko,
+        )
 
+        # 5. 완료
         _update(
             short_id,
             status="completed",

@@ -35,7 +35,7 @@ flowchart LR
     A[YouTube URL<br/>+ 구간 지정] --> B[1. 다운로드<br/>yt-dlp + ffmpeg]
     B --> C[2. STT<br/>Whisper]
     C --> D[3. 번역<br/>Gemini]
-    D --> E[4. 렌더<br/>Creatomate 9:16]
+    D --> E[4. 합성<br/>FFmpeg + ASS]
     E --> F[5. 저장<br/>로컬 mp4]
 ```
 
@@ -44,7 +44,7 @@ flowchart LR
 | 1 | 다운로드 | yt-dlp + ffmpeg | 오디오 구간 추출 + 썸네일 또는 영상 프레임 캡처 |
 | 2 | STT | OpenAI Whisper | 영문 가사 → segment 단위 타임스탬프 |
 | 3 | 번역 | Google Gemini 2.5 Flash | 쇼츠 자막에 어울리는 짧고 감성적인 한국어 |
-| 4 | 렌더 | Creatomate | 9:16 영상, 영문(상단·반투명) + 한글(하단·아웃라인) 듀얼 자막 |
+| 4 | 합성 | 로컬 FFmpeg + ASS | 1080×1920, 배경 블러 + 전경 이미지 + 영(상단·반투명) · 한(하단·아웃라인) 듀얼 자막 |
 | 5 | 저장 | 로컬 파일시스템 | `storage/<short_id>/<short_id>.mp4` |
 
 ---
@@ -52,8 +52,8 @@ flowchart LR
 ## 기술 스택
 
 - **백엔드**: FastAPI · SQLAlchemy · SQLite
-- **외부 API**: OpenAI Whisper · Google Gemini · Creatomate
-- **미디어 처리**: yt-dlp · ffmpeg
+- **외부 API**: OpenAI Whisper · Google Gemini
+- **미디어 처리**: yt-dlp · FFmpeg (libass로 ASS 자막 burn-in)
 - **실행 환경**: Python 3.11+ (각자 본인 컴퓨터에 설치)
 
 ### 단일 사용자 로컬 모드
@@ -67,8 +67,11 @@ flowchart LR
 ### 1. 사전 요구
 
 - Python 3.11 이상
-- ffmpeg (`brew install ffmpeg` 또는 `apt install ffmpeg`)
-- API 키 3종 (아래 환경변수 참고)
+- **FFmpeg (libass 포함 빌드)** — 자막을 영상에 굽는 데 `libass` 필터가 필요합니다.
+    - macOS: `brew install ffmpeg-full` (Homebrew 기본 `ffmpeg` 패키지는 libass가 빠져 있어 자막 합성이 안 됩니다)
+    - Ubuntu/Debian: `sudo apt install ffmpeg` (기본 빌드에 libass 포함)
+- API 키 2종 (아래 환경변수 참고)
+- 한국어 자막 폰트 (macOS는 AppleSDGothicNeo 기본 설치, Windows는 Malgun Gothic 등)
 
 ### 2. 클론 + 의존성 설치
 
@@ -83,7 +86,7 @@ pip install -r backend/requirements.txt
 
 ```bash
 cp .env.example .env
-# .env 열어서 API 키 3개 채우기
+# .env 열어서 API 키 2개 채우기
 ```
 
 ### 4. 서버 기동
@@ -103,7 +106,8 @@ uvicorn backend.main:app --reload
 | `CHANNEL_NAME` | 채널 이름 (각자 다르게) | 본인 정함 (예: `coolvibeply`) |
 | `OPENAI_API_KEY` | Whisper STT | <https://platform.openai.com/api-keys> |
 | `GEMINI_API_KEY` | 한국어 번역 | <https://aistudio.google.com/apikey> |
-| `CREATOMATE_API_KEY` | 9:16 영상 렌더 | <https://creatomate.com> |
+| `FONT_EN` | 영문 자막 폰트 | 기본 `Helvetica` (macOS) / Windows는 `Arial` 권장 |
+| `FONT_KO` | 한글 자막 폰트 | 기본 `AppleSDGothicNeo-Bold` / Windows는 `Malgun Gothic` 권장 |
 | `STORAGE_LOCAL_DIR` | 결과물 저장 경로 | 기본값 `./storage` |
 
 ---
@@ -147,7 +151,8 @@ youtubeshorts/
 │   │   └── shorts.py        쇼츠 CRUD 라우터
 │   ├── pipeline/
 │   │   ├── orchestrator.py  5단계 파이프라인 오케스트레이션
-│   │   └── steps.py         단계별 구현 함수
+│   │   ├── steps.py         다운로드 / STT / 번역 함수
+│   │   └── render.py        FFmpeg + ASS 9:16 합성
 │   └── workers/
 │       └── tasks.py         백그라운드 태스크 래퍼
 ├── .env.example
@@ -163,13 +168,13 @@ youtubeshorts/
 - [x] FastAPI + SQLite 단일 사용자 모드
 - [x] yt-dlp로 오디오·프레임 추출
 - [x] Whisper + Gemini 듀얼 자막 파이프라인
-- [x] Creatomate 9:16 렌더링
+- [x] 로컬 FFmpeg + ASS 9:16 합성 (외부 렌더 API 의존 없음)
 
-### V0.2 — 자체 렌더링 + 플레이리스트 구조
-- [ ] Creatomate 의존 제거 → 로컬 FFmpeg `drawtext` 합성 (외부 URL 불필요해짐)
+### V0.2 — 플레이리스트 구조
 - [ ] `Playlist` 테이블 추가 (15곡 = 1 플레이리스트)
 - [ ] `Song` 테이블 추가 (곡 메타데이터)
 - [ ] `shorts_pick` 마킹 (15곡 중 YouTube Shorts에 올릴 1곡)
+- [ ] 자막 스타일 채널 톤앤매너 튜닝
 
 ### V1.0 — 멀티 플랫폼 자동 업로드
 - [ ] 15곡 합본 롱폼 영상 자동 생성 (YouTube 메인용)
