@@ -227,6 +227,14 @@ youtubeshorts/
 
 ---
 
+## 문서
+
+- [AGENTS.md](AGENTS.md) — AI 에이전트가 레포에 처음 들어왔을 때 보는 컨텍스트 (구조·컨벤션)
+- [docs/product-specs/channel-concept.md](docs/product-specs/channel-concept.md) — 채널 콘셉트 상세 (페르소나·산출물·워크플로우)
+- [docs/exec-plans/active/v0.2.md](docs/exec-plans/active/v0.2.md) — V0.2 진행 + 결정 로그
+
+---
+
 ## 팀
 
 - **이지연** — 기획·개발, 채널 `coolvibeply` 운영
